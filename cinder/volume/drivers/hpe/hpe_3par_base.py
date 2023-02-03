@@ -71,34 +71,32 @@ class HPE3PARDriverBase(driver.ManageableVD,
         self.configuration.append_config_values(hpecommon.hpe3par_opts)
         self.configuration.append_config_values(san.san_opts)
         self.protocol = None
-        self.common = None
 
     @staticmethod
     def get_driver_options():
         return hpecommon.HPE3PARCommon.get_driver_options()
 
     def _init_common(self):
-        self.common = hpecommon.HPE3PARCommon(self.configuration,
-                                              self._active_backend_id)
-        return self.common
+        return hpecommon.HPE3PARCommon(self.configuration,
+                                       self._active_backend_id)
 
     def _login(self, timeout=None, array_id=None):
-        self.common = self._init_common()
+        common = self._init_common()
         # If replication is enabled and we cannot login, we do not want to
         # raise an exception so a failover can still be executed.
         try:
-            self.common.do_setup(None, timeout=timeout, stats=self._stats,
-                                 array_id=array_id)
-            self.common.client_login()
+            common.do_setup(None, timeout=timeout, stats=self._stats,
+                            array_id=array_id)
+            common.client_login()
         except Exception:
-            if self.common._replication_enabled:
+            if common._replication_enabled:
                 LOG.warning("The primary array is not reachable at this "
                             "time. Since replication is enabled, "
                             "listing replication targets and failing over "
                             "a volume can still be performed.")
             else:
                 raise
-        return self.common
+        return common
 
     def _logout(self, common):
         # If replication is enabled and we do not have a client ID, we did not
@@ -130,17 +128,20 @@ class HPE3PARDriverBase(driver.ManageableVD,
         if not refresh:
             return self._stats
 
-        self._stats = self.common.get_volume_stats(
-            refresh,
-            self.get_filter_function(),
-            self.get_goodness_function())
-
-        self._stats['storage_protocol'] = self.protocol
-        self._stats['driver_version'] = self.VERSION
-        backend_name = self.configuration.safe_get('volume_backend_name')
-        self._stats['volume_backend_name'] = (backend_name or
-                                              self.__class__.__name__)
-        return self._stats
+        common = self._login()
+        try:
+            self._stats = common.get_volume_stats(
+                refresh,
+                self.get_filter_function(),
+                self.get_goodness_function())
+            self._stats['storage_protocol'] = self.protocol
+            self._stats['driver_version'] = self.VERSION
+            backend_name = self.configuration.safe_get('volume_backend_name')
+            self._stats['volume_backend_name'] = (backend_name or
+                                                  self.__class__.__name__)
+            return self._stats
+        finally:
+            self._logout(common)
 
     def check_for_setup_error(self):
         """Setup errors are already checked for in do_setup so return pass."""
@@ -148,16 +149,28 @@ class HPE3PARDriverBase(driver.ManageableVD,
 
     @volume_utils.trace
     def create_volume(self, volume):
-        return self.common.create_volume(volume)
+        common = self._login()
+        try:
+            return common.create_volume(volume)
+        finally:
+            self._logout(common)
 
     @volume_utils.trace
     def create_cloned_volume(self, volume, src_vref):
         """Clone an existing volume."""
-        return self.common.create_cloned_volume(volume, src_vref)
+        common = self._login()
+        try:
+            return common.create_cloned_volume(volume, src_vref)
+        finally:
+            self._logout(common)
 
     @volume_utils.trace
     def delete_volume(self, volume):
-        return self.common.delete_volume(volume)
+        common = self._login()
+        try:
+            common.delete_volume(volume)
+        finally:
+            self._logout(common)
 
     @volume_utils.trace
     def create_volume_from_snapshot(self, volume, snapshot):
@@ -165,76 +178,140 @@ class HPE3PARDriverBase(driver.ManageableVD,
 
         TODO: support using the size from the user.
         """
-        return self.common.create_volume_from_snapshot(volume, snapshot)
+        common = self._login()
+        try:
+            return common.create_volume_from_snapshot(volume, snapshot)
+        finally:
+            self._logout(common)
 
     @volume_utils.trace
     def create_snapshot(self, snapshot):
-        return self.common.create_snapshot(snapshot)
+        common = self._login()
+        try:
+            common.create_snapshot(snapshot)
+        finally:
+            self._logout(common)
 
     @volume_utils.trace
     def delete_snapshot(self, snapshot):
-        return self.common.delete_snapshot(snapshot)
+        common = self._login()
+        try:
+            common.delete_snapshot(snapshot)
+        finally:
+            self._logout(common)
 
     @volume_utils.trace
     def extend_volume(self, volume, new_size):
-        return self.common.extend_volume(volume, new_size)
+        common = self._login()
+        try:
+            common.extend_volume(volume, new_size)
+        finally:
+            self._logout(common)
 
     @volume_utils.trace
     def create_group(self, context, group):
-        return self.common.create_group(context, group)
+        common = self._login()
+        try:
+            return common.create_group(context, group)
+        finally:
+            self._logout(common)
 
     @volume_utils.trace
     def create_group_from_src(self, context, group, volumes,
                               group_snapshot=None, snapshots=None,
                               source_group=None, source_vols=None):
-        return self.common.create_group_from_src(
-            context, group, volumes, group_snapshot, snapshots,
-            source_group, source_vols)
+        common = self._login()
+        try:
+            return common.create_group_from_src(
+                context, group, volumes, group_snapshot, snapshots,
+                source_group, source_vols)
+        finally:
+            self._logout(common)
 
     @volume_utils.trace
     def delete_group(self, context, group, volumes):
-        return self.common.delete_group(context, group, volumes)
+        common = self._login()
+        try:
+            return common.delete_group(context, group, volumes)
+        finally:
+            self._logout(common)
 
     @volume_utils.trace
     def update_group(self, context, group, add_volumes=None,
                      remove_volumes=None):
-        return self.common.update_group(context, group, add_volumes,
-                                        remove_volumes)
+        common = self._login()
+        try:
+            return common.update_group(context, group, add_volumes,
+                                       remove_volumes)
+        finally:
+            self._logout(common)
 
     @volume_utils.trace
     def create_group_snapshot(self, context, group_snapshot, snapshots):
-        return self.common.create_group_snapshot(context, group_snapshot,
-                                                 snapshots)
+        common = self._login()
+        try:
+            return common.create_group_snapshot(context, group_snapshot,
+                                                snapshots)
+        finally:
+            self._logout(common)
 
     @volume_utils.trace
     def delete_group_snapshot(self, context, group_snapshot, snapshots):
-        return self.common.delete_group_snapshot(context, group_snapshot,
-                                                 snapshots)
+        common = self._login()
+        try:
+            return common.delete_group_snapshot(context, group_snapshot,
+                                                snapshots)
+        finally:
+            self._logout(common)
 
     @volume_utils.trace
     def manage_existing(self, volume, existing_ref):
-        return self.common.manage_existing(volume, existing_ref)
+        common = self._login()
+        try:
+            return common.manage_existing(volume, existing_ref)
+        finally:
+            self._logout(common)
 
     @volume_utils.trace
     def manage_existing_snapshot(self, snapshot, existing_ref):
-        return self.common.manage_existing_snapshot(snapshot, existing_ref)
+        common = self._login()
+        try:
+            return common.manage_existing_snapshot(snapshot, existing_ref)
+        finally:
+            self._logout(common)
 
     @volume_utils.trace
     def manage_existing_get_size(self, volume, existing_ref):
-        return self.common.manage_existing_get_size(volume, existing_ref)
+        common = self._login()
+        try:
+            return common.manage_existing_get_size(volume, existing_ref)
+        finally:
+            self._logout(common)
 
     @volume_utils.trace
     def manage_existing_snapshot_get_size(self, snapshot, existing_ref):
-        return self.common.manage_existing_snapshot_get_size(snapshot,
-                                                             existing_ref)
+        common = self._login()
+        try:
+            return common.manage_existing_snapshot_get_size(snapshot,
+                                                            existing_ref)
+        finally:
+            self._logout(common)
 
     @volume_utils.trace
     def unmanage(self, volume):
-        return self.common.unmanage(volume)
+        common = self._login()
+        try:
+            common.unmanage(volume)
+        finally:
+            self._logout(common)
 
     @volume_utils.trace
     def unmanage_snapshot(self, snapshot):
-        return self.common.unmanage_snapshot(snapshot)
+        common = self._login()
+        try:
+            common.unmanage_snapshot(snapshot)
+        finally:
+            self._logout(common)
 
     @volume_utils.trace
     def retype(self, context, volume, new_type, diff, host):
@@ -257,28 +334,43 @@ class HPE3PARDriverBase(driver.ManageableVD,
                            'storage_protocol': protocol})
                 return False, None
 
-        return self.common.migrate_volume(volume, host)
+        common = self._login()
+        try:
+            return common.migrate_volume(volume, host)
+        finally:
+            self._logout(common)
 
     @volume_utils.trace
     def update_migrated_volume(self, context, volume, new_volume,
                                original_volume_status):
         """Update the name of the migrated volume to it's new ID."""
-        return self.common.update_migrated_volume(context, volume, new_volume,
-                                                  original_volume_status)
+        common = self._login()
+        try:
+            return common.update_migrated_volume(context, volume, new_volume,
+                                                 original_volume_status)
+        finally:
+            self._logout(common)
 
     @volume_utils.trace
     def get_pool(self, volume):
+        common = self._login()
         try:
-            return self.common.get_cpg(volume)
+            return common.get_cpg(volume)
         except hpeexceptions.HTTPNotFound:
             reason = (_("Volume %s doesn't exist on array.") % volume)
             LOG.error(reason)
             raise exception.InvalidVolume(reason)
+        finally:
+            self._logout(common)
 
     @volume_utils.trace
     def revert_to_snapshot(self, context, volume, snapshot):
         """Revert volume to snapshot."""
-        return self.common.revert_to_snapshot(volume, snapshot)
+        common = self._login()
+        try:
+            common.revert_to_snapshot(volume, snapshot)
+        finally:
+            self._logout(common)
 
     @volume_utils.trace
     def failover_host(self, context, volumes, secondary_id=None, groups=None):
@@ -302,7 +394,11 @@ class HPE3PARDriverBase(driver.ManageableVD,
         :param volumes: the list of volumes
         :returns: model_update, None
         """
-        return self.common.enable_replication(context, group, volumes)
+        common = self._login()
+        try:
+            return common.enable_replication(context, group, volumes)
+        finally:
+            self._logout(common)
 
     def disable_replication(self, context, group, volumes):
         """Disable replication for a group.
@@ -312,7 +408,11 @@ class HPE3PARDriverBase(driver.ManageableVD,
         :param volumes: the list of volumes
         :returns: model_update, None
         """
-        return self.common.disable_replication(context, group, volumes)
+        common = self._login()
+        try:
+            return common.disable_replication(context, group, volumes)
+        finally:
+            self._logout(common)
 
     def failover_replication(self, context, group, volumes,
                              secondary_backend_id=None):
