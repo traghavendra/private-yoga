@@ -181,6 +181,7 @@ class HPE3PARISCSIDriver(hpebasedriver.HPE3PARDriverBase):
             # add port values to ip_addr, if necessary
             for ip_addr in backend_conf['hpe3par_iscsi_ips']:
                 ip = ip_addr.split(':')
+                LOG.info("ip: " + str(ip) )
                 if len(ip) == 1:
                     temp_iscsi_ip[ip_addr] = {'ip_port': DEFAULT_ISCSI_PORT}
                 elif len(ip) == 2:
@@ -200,7 +201,10 @@ class HPE3PARISCSIDriver(hpebasedriver.HPE3PARDriverBase):
         # get all the valid iSCSI ports from 3PAR
         # when found, add the valid iSCSI ip, ip port, iqn and nsp
         # to the iSCSI IP dictionary
+        LOG.info("Calling common.get_active_iscsi_target_ports")
         iscsi_ports = common.get_active_iscsi_target_ports(remote_client)
+
+        LOG.info("iscsi_ports: " + str(iscsi_ports) )
 
         for port in iscsi_ports:
             ip = port['IPAddr']
@@ -210,6 +214,16 @@ class HPE3PARISCSIDriver(hpebasedriver.HPE3PARDriverBase):
                                      'nsp': port['nsp'],
                                      'iqn': port['iSCSIName']}
                 del temp_iscsi_ip[ip]
+            if len(port['iSCSIVlans']) > 0:
+                for vip in port['iSCSIVlans']:
+                    ip = vip['IPAddr']
+                    if ip in temp_iscsi_ip:
+                        LOG.info("inner ip: " + str(ip) )
+                        ip_port = temp_iscsi_ip[ip]['ip_port']
+                        iscsi_ip_list[ip] = {'ip_port': ip_port,
+                                             'nsp': port['nsp'],
+                                             'iqn': port['iSCSIName']}
+                        del temp_iscsi_ip[ip]
 
         # if the single value iscsi_ip_address option is still in the
         # temp dictionary it's because it defaults to $my_ip which doesn't
@@ -224,6 +238,8 @@ class HPE3PARISCSIDriver(hpebasedriver.HPE3PARDriverBase):
                         "configuration option(s) hpe3par_iscsi_ips or "
                         "target_ip_address '%s.'",
                         (", ".join(temp_iscsi_ip)))
+        else:
+            LOG.info("All ips mentioned in hpe3par_iscsi_ips are valid")
 
         if not len(iscsi_ip_list):
             msg = _('At least one valid iSCSI IP address must be set.')
