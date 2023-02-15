@@ -259,6 +259,12 @@ class HPE3PARISCSIDriver(hpebasedriver.HPE3PARDriverBase):
 
         # Target portal ips are defined in cinder.conf.
         target_portal_ips = iscsi_ips.keys()
+        LOG.info("target_portal_ips: " + str(target_portal_ips) )
+
+        vlun_created = False
+        LOG.info("vlun_created: " + str(vlun_created) )
+
+        prev_vlun = None
 
         # Collect all existing VLUNs for this volume/host combination.
         existing_vluns = common.find_existing_vluns(volume, host,
@@ -269,6 +275,7 @@ class HPE3PARISCSIDriver(hpebasedriver.HPE3PARDriverBase):
         lun_id = None
         for port in ready_ports:
             iscsi_ip = port['IPAddr']
+            LOG.info("iscsi_ip: " + str(iscsi_ip) )
             if iscsi_ip in target_portal_ips:
                 vlun = None
                 # check for an already existing VLUN matching the
@@ -277,27 +284,86 @@ class HPE3PARISCSIDriver(hpebasedriver.HPE3PARDriverBase):
                 for v in existing_vluns:
                     portPos = common.build_portPos(
                         iscsi_ips[iscsi_ip]['nsp'])
+                    LOG.info("portPos: " + str(portPos) )
                     if v['portPos'] == portPos:
                         vlun = v
+                        LOG.info("v['portPos'] is equal to portPos: ")
+                        target_luns.append(vlun['lun'])
                         break
                 else:
-                    vlun = common.create_vlun(
-                        volume, host, iscsi_ips[iscsi_ip]['nsp'],
-                        lun_id=lun_id, remote_client=remote_client)
+#                    vlun = common.create_vlun(
+#                        volume, host, iscsi_ips[iscsi_ip]['nsp'],
+#                        lun_id=lun_id, remote_client=remote_client)
+#
+#                    # We want to use the same LUN ID for every port
+#                    if lun_id is None:
+#                        lun_id = vlun['lun']
 
-                    # We want to use the same LUN ID for every port
-                    if lun_id is None:
-                        lun_id = vlun['lun']
+                    if not vlun_created:
+                        LOG.info("calling common.create_vlun")
+                        vlun = common.create_vlun(
+                            volume, host, None,
+                            None, remote_client=remote_client)
+                        vlun_created = True
+
+                        target_luns.append(vlun['lun'])
+                        prev_vlun = vlun
+                        # break
+                    else:
+                        LOG.info("vlun already created")
+                        target_luns.append(prev_vlun['lun'])
 
                 iscsi_ip_port = "%s:%s" % (
                     iscsi_ip, iscsi_ips[iscsi_ip]['ip_port'])
+                LOG.info("iscsi_ip_port:" + str(iscsi_ip_port) )
                 target_portals.append(iscsi_ip_port)
                 target_iqns.append(port['iSCSIName'])
-                target_luns.append(vlun['lun'])
+
+            if len(port['iSCSIVlans']) > 0:
+                for vip in port['iSCSIVlans']:
+                    iscsi_ip = vip['IPAddr']
+                    if iscsi_ip in target_portal_ips:
+                        LOG.info("inner ip: " + str(iscsi_ip) )
+
+                        vlun = None
+                        # check for an already existing VLUN matching the
+                        # nsp for this iSCSI IP. If one is found, use it
+                        # instead of creating a new VLUN.
+                        for v in existing_vluns:
+                            portPos = common.build_portPos(
+                                iscsi_ips[iscsi_ip]['nsp'])
+                            LOG.info("portPos: " + str(portPos) )
+                            if v['portPos'] == portPos:
+                                vlun = v
+                                LOG.info("v['portPos'] is equal to portPos: ")
+                                target_luns.append(vlun['lun'])
+                                break
+                        else:
+                            if not vlun_created:
+                                LOG.info("calling common.create_vlun")
+                                vlun = common.create_vlun(
+                                    volume, host, None,
+                                    None, remote_client=remote_client)
+                                vlun_created = True
+                                target_luns.append(vlun['lun'])
+                                prev_vlun = vlun
+                                # break
+                            else:
+                                LOG.info("vlun already created")
+                                target_luns.append(prev_vlun['lun'])
+        
+                        iscsi_ip_port = "%s:%s" % (
+                            iscsi_ip, iscsi_ips[iscsi_ip]['ip_port'])
+                        LOG.info("iscsi_ip_port:" + str(iscsi_ip_port) )
+                        target_portals.append(iscsi_ip_port)
+                        target_iqns.append(port['iSCSIName'])
+
             else:
                 LOG.warning("iSCSI IP: '%s' was not found in "
                             "hpe3par_iscsi_ips list defined in "
                             "cinder.conf.", iscsi_ip)
+
+            LOG.info("vlun_created: " + str(vlun_created) )
 
     @volume_utils.trace
     @coordination.synchronized('3par-{volume.id}')
@@ -869,3 +935,4 @@ class HPE3PARISCSIDriver(hpebasedriver.HPE3PARDriverBase):
                 current_least_used_nsp = nsp
                 current_smallest_count = count
         return current_least_used_nsp
+
