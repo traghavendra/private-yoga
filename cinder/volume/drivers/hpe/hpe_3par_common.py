@@ -1943,7 +1943,16 @@ class HPE3PARCommon(object):
             if min_bw is None:
                 qosRule['bwMinGoalKB'] = int(max_bw) * units.Ki
         if latency:
-            qosRule['latencyGoal'] = int(latency)
+            # latency could be either int (eg. 5) or float (eg. 0.2)
+            # we are converting to float so that 0.2 doesn't become 0
+            latency = float(latency)
+            if latency >= 1:
+                # by default, latency in millisecs
+                qosRule['latencyGoal'] = int(latency)
+            else:
+                # latency < 1 Eg. 0.1, 0.02, etc
+                # convert latency to microsecs
+                qosRule['latencyGoaluSecs'] = int(latency * 1000)
         if priority:
             qosRule['priority'] = self.qos_priority_level.get(priority.lower())
 
